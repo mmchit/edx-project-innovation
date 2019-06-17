@@ -1,0 +1,500 @@
+---
+title: "Predicting an Innovative Firm - (CYO) Project"
+author: "Myint Moe Chit"
+date: "6/16/2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Introduction
+
+Innovation is considered as one of the essential components of a firm’s competitiveness. Innovation of businesses is also important for economies. An innovative firm is likely to generate more profits, create more skilled-jobs, and pay higher wages. It is importance for investors, managers and policy makers to be able to identify an innovative firm. In this project, innovation of a firm is measured in a broader sense. A firm is considered innovative if it can introduce a new product or service.
+
+In this project, I apply machine learning techniques to predict innovative firms using firm-level data from the World Bank’s Enterprise Surveys (WBES). The surveys were conducted in various countries between 2007 and 2018 (Data release date: May 6, 2019). These cross-sectional firm-level surveys cover characteristics of 139654 firms from 139 countries. The data is available from https://www.enterprisesurveys.org/. After removing observations with missing values, I analyse 61507 firms operating in 122 countries in this project. The data set of frims used in this project is available at https://github.com/mmchit/edx-project-innovation. To protect the privacy of the firms, I replaced firm ID with a serial number.
+
+To predict an innovative firm, I use seven firm-specific variables plus country, and industry of the firm as predictors. The outcome variable is a dichotomous categorical variable that represents whether the business has introduced a new product or service over the previous three years. 
+
+The name of the variables and descriptions are presented in Table 1.
+
+**Table 1**
+------------------------       ---------------------------------------------------------------
+Innovation (outcome)	         New products/services introduced over last 3 years			
+Country                          Country where the business operates					       
+Industry	                     Industry of the business (consolidated to 8 industries)                                  
+Age		                         Years of operation (Survey year – Established year)
+Size		                     Size Category (Small <20; Medium 20-99; Large 100 and above
+Legal Status                     Firms legal status of incorporation					     
+Foreign Tech                     Firm uses technology licensed from a foreign-owned company	
+Exporter	                     Firm exports the product 							           
+ISO		                         Firm has an Internationally-Recognized Quality Certification
+Training	                     Firm provides formal training programs for employees 		  
+------------------------      ----------------------------------------------------------------
+
+# Data and method of analysis
+
+The original data set from the World Bank Enterprise Surveys (WBES) includes 354 variables. To construct the data set used in this analysis, I excluded unnecessary variables and keep only 10 variables used in the analysis. Then, I deleted the observations with missing values. Since the original data set is in STATA format, I did data cleaning in STATA. Then I converted the file to csv format. 
+
+The data set used in this project is available for download at https://github.com/mmchit/edx-project-innovation. The following data frame in tidy format shows the structure of the data.
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+# Myint Moe Chit (mmchit@hotmail.com)
+# R version: 3.6.0
+
+# Download and load required packages (if required)
+if(!require(tidyverse)) install.packages("tidyverse", 
+                                         repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", 
+                                     repos = "http://cran.us.r-project.org")
+if(!require(randomForest)) install.packages("randomForest", 
+                                            repos = "http://cran.us.r-project.org")
+if(!require(purrr)) install.packages("purrr", 
+                                     repos = "http://cran.us.r-project.org")
+if(!require(curl)) install.packages("curl", 
+                                    repos = "http://cran.us.r-project.org")
+
+#Downloading data file from Github 
+
+#The full data set is available from the World Bank Enterprise Surveys  
+
+#https://www.enterprisesurveys.org/
+
+wbes <- read.csv(curl
+                 ("https://raw.githubusercontent.com/mmchit/edx-project-innovation/master/wbes.csv"))
+
+wbes %>% as_tibble()
+
+```
+
+
+## Summary statistics and data visualisation
+A brief summary statistics of the key variables and the list of the countries are presented in Table 2.
+
+**Table 2**
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+
+wbes %>% group_by(country) %>% 
+    summarise(n = n(), Innovation = mean(innovation =="Yes"), 
+              Avg_Size = mean(employee), Exporter = mean(exporter =="Yes"),
+              ISO = mean(iso == "Yes"), Training = mean(training == "Yes"),
+              Foreign_Tech = mean(foreignTech == "Yes")) %>% 
+    knitr::kable(digits = c(0, 0, 2, 2, 2, 2, 2, 2))
+
+```
+
+
+The number of innovative business also varies across different industries. Following Table 3 shows the distribution of innovative firms and selected firm-specific characteristics across different industries.
+
+**Table 3**
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+
+wbes %>% group_by(industry) %>% 
+    summarise(n = n(), Innovation = mean(innovation =="Yes"), 
+              Avg_Size = mean(employee), Exporter = mean(exporter =="Yes"),
+              ISO = mean(iso == "Yes"), Training = mean(training == "Yes"),
+              Foreign_Tech = mean(foreignTech == "Yes")) %>% 
+    knitr::kable(digits = c(0, 0, 2, 2, 2, 2, 2, 2))
+
+```
+
+*Note* Except the average size of firms in the number of employees, the remaining variables are measured in proportion.
+
+To visually evaluate the relationship between the predictors and the outcome variable, I created a number of plots. 
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+wbes %>% group_by(size) %>% summarize(Innovation = mean(innovation == "Yes")) %>% 
+    ggplot(aes(size, Innovation)) + geom_bar(stat = "identity", aes(fill = size)) +
+    theme(axis.text.x = element_text(hjust = 1), legend.position = "none", 
+          plot.title = element_text(size = 10, face = "plain")) + 
+  ggtitle ("Fig 1: Proportion of innovative firms across different sizes")
+
+```
+
+As shown in Figure 1, the proportion of innovative frims are different across size-categories.
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+wbes %>% group_by(industry) %>% summarize(Innovation = mean(innovation == "Yes")) %>% 
+    ggplot(aes(industry, Innovation)) + geom_bar(stat = "identity", aes(fill = industry)) +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1), 
+          plot.title = element_text(size = 10, face = "plain"), legend.position = "none") + 
+  ggtitle ("Fig 2: Proportion of innovative firms across different industries")
+```
+
+Firms' capability to innovate will also different across the industry in which they operate. Manufacturing firms are more likely to offer new products compared to firms in construction industry. I plot the proportion of innovative firms across industries and presented in Figure 2.
+
+ 
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+wbes %>% group_by(legalStatus) %>% summarize(Innovation = mean(innovation == "Yes")) %>% 
+    ggplot(aes(legalStatus, Innovation)) + geom_bar(stat = "identity", aes(fill = legalStatus)) +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1), 
+          plot.title = element_text(size = 10, face = "plain"), legend.position = "none") + 
+  ggtitle ("Fig 3: Proportion of innovative firms across different Legal Status")
+```
+
+A firm's legal status could also be associated with its innovation. Figure 3 shows the difference in the proportion of innovative firms across different types of legal status.
+
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+wbes %>% group_by(foreignTech) %>% summarize(Innovation = mean(innovation == "Yes")) %>% 
+    ggplot(aes(foreignTech, Innovation)) + geom_bar(stat = "identity", aes(fill = foreignTech)) +
+    theme(axis.text.x = element_text(hjust = 1), 
+          plot.title = element_text(size = 10, face = "plain"), 
+          legend.position = "none") + 
+  ggtitle ("Fig 4: Innovative Firms and the use of Foreign Technology")
+```
+
+It is reasonable to assume that firms that use foreign technology are more likely to offer new and innovative products.
+
+As shown in the figure, more than 55% of firms that use licensed foreign technology introduce a new product or servide. In comparison, only 36% of firms that do not have access to foreign technology introduce a new product.
+
+
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+wbes %>% group_by(exporter) %>% summarize(Innovation = mean(innovation == "Yes")) %>% 
+    ggplot(aes(exporter, Innovation)) + geom_bar(stat = "identity", aes(fill = exporter)) +
+    theme(axis.text.x = element_text(hjust = 1), 
+          plot.title = element_text(size = 10, face = "plain"), 
+          legend.position = "none") + 
+  ggtitle ("Fig 5: Innovative Firms and the Exporters")
+
+```
+
+Figure 5 shows the difference in the proportion of innovative frims  between expoters are non-exporters.
+
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+wbes %>% group_by(iso) %>% summarize(Innovation = mean(innovation == "Yes")) %>% 
+    ggplot(aes(iso, Innovation)) + geom_bar(stat = "identity", aes(fill = iso)) +
+    theme(axis.text.x = element_text(hjust = 1), 
+          plot.title = element_text(size = 10, face = "plain"), 
+          legend.position = "none") + 
+  ggtitle ("Fig 6: Innovative Firms and ISO certificate")
+
+```
+
+Figure 6 demonstrates that firms with internationally recognized certification, such as ISO9001, are more likely to be innovative.
+
+
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+wbes %>% group_by(training) %>% summarize(Innovation = mean(innovation == "Yes")) %>% 
+    ggplot(aes(training, Innovation)) + geom_bar(stat = "identity", aes(fill = training)) +
+    theme(axis.text.x = element_text(hjust = 1), 
+          plot.title = element_text(size = 10, face = "plain"),
+          legend.position = "none") + 
+  ggtitle ("Fig 7: Innovative Firms and Training")
+
+```
+
+Figure 7 also shows that firms that provide training to their employees are more innovative.
+
+
+## Machine learning algorithms
+
+As presented tables and figures suggest, the predictors used in this project are significantly associated with a firm's capabilities to innovate and offer a new product or service.
+
+It is important to select a machine learning algorithm suitable for the type and distribution of data. Since the outcome is a binary categorical variable and the model includes nine predictors, linear regression and Quadratic Discriminant Analysis are considered not suitable. The random forest algorithm is also not suitable because one of the predictors, country, consists of 122 factors. Therefore, I use the following machine learning algorithms.
+
+* Simple random selection (benchmark)
+* Logitic regression
+* k-nearest neighbours
+* Naïve Bayes
+* Linear discriminant analysis
+* Classification tree
+* Random forest (Rborist)
+
+I will select the algorithm with the highest accuracy and the lowest residual mean squared error (although RMSE may not very informative for a categorical outcome variable). 
+
+### Training and test data set
+I divide the data set into a training set (90% of the observations) with 55355 observations and a test  set (10% of the observations) with 6125 observations. 
+
+```{r , include=FALSE, warning=FALSE, message=FALSE}
+#Creating a training set (90%) and a test set (10%)
+
+y <- wbes$innovation
+
+mean(y == "Yes")
+
+set.seed(1)
+test_index <- createDataPartition(y, times = 1, p = 0.1, list = FALSE)
+test_set <- wbes[test_index, ]
+train_set <- wbes[-test_index, ]
+
+```
+
+# Analysis and results
+
+The cretirea for selecting the most appropriate machine learning algorithm are accuracy and the residual mean squared error. The residual mean squared error is calculated using the following function.
+
+```{r}
+RMSE <- function(true_ratings, predicted_ratings){
+    sqrt(mean((true_ratings - predicted_ratings)^2))
+}
+```
+
+**Baseline model (Random selection)**
+As a banch mark, I first create a simple model based on random selection.It is not surprising, on average, about 50 percent of firms are correctly predicted using random selection. 
+
+```{r , include=FALSE, warning=FALSE, message=FALSE}
+
+#Baseline prediction: Selecting firms in random
+
+y_hat <- sample(c("Yes", "No"), length(test_index), replace = TRUE) %>%
+    factor(levels = levels(test_set$innovation))
+
+mean(y_hat == test_set$innovation)
+
+confusionMatrix(data = y_hat, reference = test_set$innovation, positive = "Yes")
+
+accuracy_random <- confusionMatrix(data = y_hat, reference = test_set$innovation, 
+                                   positive = "Yes")$overall["Accuracy"]
+
+rmse_random <- RMSE(as.numeric(test_set$innovation), as.numeric(y_hat))
+
+Results <- data_frame(Method = "Random Selection", Accuracy = accuracy_random, 
+                      RMSE = rmse_random)
+
+```
+
+As shown in the table, The accuracy is 0.49 and RMSE is 0.71 (closer to 1). 
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+Results %>% knitr::kable(digits = c(0, 2, 2))
+```
+
+**Logitic Regression**
+As a first machine learning algrothm, I use logistic regression, wich is a generalised linear model suitable for a binary outcome variable.
+
+```{r , include=FALSE, warning=FALSE, message=FALSE}
+#Logit Regression 
+
+logit_fit <- glm(innovation ~ age + country + size + legalStatus + industry + foreignTech 
+                 + exporter + iso + training, data = train_set, family = "binomial")
+
+p_h_logit <- predict(logit_fit, test_set)
+
+y_h_logit <- factor(ifelse(p_h_logit > 0.5, "Yes", "No"))
+
+confusionMatrix(data = y_h_logit, reference = test_set$innovation, positive = "Yes")
+
+accuracy_logit <- confusionMatrix(data = y_h_logit, reference = test_set$innovation, 
+                                   positive = "Yes")$overall["Accuracy"]
+
+rmse_logit <- RMSE(as.numeric(test_set$innovation), as.numeric(y_h_logit))
+
+Results1 <- data.frame(Method = "Logitic Regression", 
+                                Accuracy = accuracy_logit, RMSE = rmse_logit)
+```
+
+The accuracy and RMSE obtained from Logistic regression are significantly higher than those from simple random selection.
+
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+Results1 %>% knitr::kable(digits = c(0, 2, 2))
+```
+
+**K-nearest neighbours**
+I then use K-nearest neighbours algorithm that pay attention to the relationship and trend among the observations close to each other. This method allow us to control the flexibility of the estimates by setting the number of the points in the neighbourhood used to compute the average (Irzarry 2019). After employing a cross-validation method (not presented here), the optimum number of *k* that maximise the accuracy of the model is 13. The accuracy of this method is lower than LOgistic regression.
+
+```{r , include=FALSE, warning=FALSE, message=FALSE}
+#k-Nearest Neigbours
+
+knn_fit <- knn3(innovation ~ age + country + size + legalStatus + industry + foreignTech 
+                + exporter + iso + training, data = train_set, k = 13)
+
+y_h_knn <- predict(knn_fit, test_set, type = "class")
+
+confusionMatrix(data = y_h_knn, reference = test_set$innovation, positive = "Yes")
+
+accuracy_knn <- confusionMatrix(data = y_h_knn, reference = test_set$innovation, 
+                positive = "Yes")$overall["Accuracy"]
+
+rmse_knn <- RMSE(as.numeric(test_set$innovation), as.numeric(y_h_knn))
+
+Results1 <- data.frame(Method = "k-Nearest Neigbour", 
+                                         Accuracy = accuracy_knn, RMSE = rmse_knn)
+```
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+Results1 %>% knitr::kable(digits = c(0, 2, 2))
+```
+
+**Naive Bayes method
+Although this algorithm is not suitable for a model with more than two predictors, I estimate the model with Naive Bayes method, which is one of the generative models, that based on the joint distribution of outcome and predictors. As we suspect, the accuracy of the model obtained from using Naive Bayes method is much lower.
+
+```{r , include=FALSE, warning=FALSE, message=FALSE}
+# Naive Bayes
+
+naive_fit <- train(innovation ~ age + country + size + legalStatus + industry + foreignTech 
+                   + exporter + iso + training, data = train_set, method = "naive_bayes")
+
+y_h_naive <- predict(naive_fit, test_set)
+
+confusionMatrix(data = y_h_naive, reference = test_set$innovation, positive = "Yes")
+
+
+accuracy_naive <- confusionMatrix(data = y_h_naive, reference = test_set$innovation, 
+                                  positive = "Yes")$overall["Accuracy"]
+
+rmse_naive <- RMSE(as.numeric(test_set$innovation), as.numeric(y_h_naive))
+
+Results1 <- data.frame(Method = "Naive Bayes", 
+                                         Accuracy = accuracy_naive, RMSE = rmse_naive)
+```
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+Results1 %>% knitr::kable(digits = c(0, 2, 2))
+```
+
+
+**Linear Discriminant Analysis method**
+
+One of the generative models that provides a relatively simple solution to the problem of having too many parameters is Linear Discriminant Analysis (LDA). This method assumes that the correlation structure of the predictors is the same for all classes, which reduces the number of parameters we need to estimate (Irzarry 2019). Since the model used in this project includes nine predictors, LDA is considered to be a thoeretically appropriate method. The obtained accuracy and RMSE confirm this. So far, this method produces the higher accuracy and the lowest RMSE.  
+
+```{r , include=FALSE, warning=FALSE, message=FALSE}
+
+# Linear Discriminant Analysis 
+
+lda_fit <- train(innovation ~ age + country + size + legalStatus +
+                     industry +  foreignTech + exporter + iso +
+                     training , data = train_set, method = "lda")
+
+y_h_lda <- predict(lda_fit, test_set)
+
+confusionMatrix(data = y_h_lda, reference = test_set$innovation, positive = "Yes")
+
+accuracy_lda <- confusionMatrix(data = y_h_lda, reference = test_set$innovation, 
+                                positive = "Yes")$overall["Accuracy"]
+
+rmse_lda <- RMSE(as.numeric(test_set$innovation), as.numeric(y_h_lda))
+
+Results1 <- data.frame(Method = "Linear Descriminant Analysis", 
+                                         Accuracy = accuracy_lda, RMSE = rmse_lda)
+```
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+Results1 %>% knitr::kable(digits = c(0, 2, 2))
+
+```
+
+**Classification (decision) Trees**
+
+Another way to overcome the problem associated with using many predictors is to use methods that allow higher dimensions in predictor variables. Classification trees, or decision trees, method is one of the methods used in prediction problems where the categorical outcome is associated with many predictors (Irzarry 2019). However, this method scores accuracy lower than LDA method.
+
+```{r , include=FALSE, warning=FALSE, message=FALSE}
+#Classification Trees
+
+train_rpart <- train(innovation ~ age + country + size + legalStatus + iso 
+                     + industry +  foreignTech + exporter + training,
+                     method = "rpart", 
+                     tuneGrid = data.frame(cp = seq(0.0, 0.1, len = 25)),
+                     data = train_set)
+
+plot(train_rpart)
+
+y_h_rpart <- predict(train_rpart, test_set)
+
+confusionMatrix(data = y_h_rpart, reference = test_set$innovation, positive = "Yes")
+
+accuracy_rpart <- confusionMatrix(data = y_h_rpart, reference = test_set$innovation, 
+                                  positive = "Yes")$overall["Accuracy"] 
+
+rmse_rpart <- RMSE(as.numeric(test_set$innovation), as.numeric(y_h_rpart))
+
+Results1 <- data.frame(Method = "Classification Trees", 
+                                         Accuracy = accuracy_rpart, RMSE = rmse_rpart)
+```
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+Results1 %>% knitr::kable(digits = c(0, 2, 2))
+```
+
+**Random forest (Rborist) method**
+
+Random forests approach uses a method to improve prediction performance and reduce instability by averaging multiple decision trees.  This method is able to generate many predictors, each using regression or classification trees, and then forming a final prediction based on the average prediction of all these trees (Irzarry 2019). As shown in the table, the accuracy obtained from this model is also lower than the one from LDA. 
+
+
+```{r , include=FALSE, warning=FALSE, message=FALSE}
+#Random Forest Rborist
+# This analysis takes about an hour
+
+train_rb <- train(innovation ~ age + country + size + legalStatus + iso 
+                 + industry +  foreignTech + exporter +
+                     training , data = train_set, method = "Rborist")
+
+y_h_rb <- predict(train_rb, test_set)
+
+confusionMatrix(data = y_h_rb, reference = test_set$innovation, positive = "Yes")
+
+accuracy_rb <- confusionMatrix(data = y_h_rb, reference = test_set$innovation, 
+                                  positive = "Yes")$overall["Accuracy"] 
+
+rmse_rb <- RMSE(as.numeric(test_set$innovation), as.numeric(y_h_rb))
+
+Results1 <- data.frame(Method = "Random Forest", 
+                                         Accuracy = accuracy_rb, RMSE = rmse_rb)
+```
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+Results1 %>% knitr::kable(digits = c(0, 2, 2))
+```
+
+### Summary of the findings
+
+Based on the values of accuracy and RMSE obtained from the models, Linear Disccriminat Analysis produces the highest accuracy score and the lowest RMSE. The results indicate that the machine learning model developed in this project can predict whether a frim is innovative or not at about 71 percent of accuracy. 
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+#Summary of results
+
+Results <- bind_rows(Results, data.frame(Method = "Logit Regression", 
+                                Accuracy = accuracy_logit, RMSE = rmse_logit))
+
+Results <- bind_rows(Results, data.frame(Method = "k-Nearest Neigbours", 
+                                Accuracy = accuracy_knn, RMSE = rmse_knn))
+
+Results <- bind_rows(Results, data.frame(Method = "Naive Bayes", 
+                                         Accuracy = accuracy_naive, RMSE = rmse_naive))
+
+Results <- bind_rows(Results, data.frame(Method = "Linear Discriminant Analysis", 
+                                         Accuracy = accuracy_lda, RMSE = rmse_lda))
+
+Results <- bind_rows(Results, data.frame(Method = "Classification Trees", 
+                                         Accuracy = accuracy_rpart, RMSE = rmse_rpart))
+
+Results <- bind_rows(Results, data.frame(Method = "Random Forest", 
+                                         Accuracy = accuracy_rb, RMSE = rmse_rb))
+
+Results %>% knitr::kable(digits = c(0, 2, 2))
+
+```
+
+### Variable Importance
+
+To identify the relative importance of predictors in estimating whether a frim is innovative or not, I obtain the variable importance scores using Linear Discriminant Analysis. The scores are as follows:
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+#Variable Importance
+
+varImp(lda_fit, scale = FALSE)
+
+```
+
+The scores clearly indiccate that providing training (an indicator of capacity building), the size of firm (an indicator for managerial and financial resources), and frim age (an indicator for experience) are relatively more important for firms' innovative capability.
+
+
+# Conclusion
+
+In this project, I attempted to predict an innovative firm using a data set obtained from the World Bank Enterprises Surveys. Based on summary statistics and data visualisation plots, I provided justification for the predictors used in the model. The accuracy of the estimates obtained from Linear Discriminant Analysis method indicate that the machine learning model can predict just over 70 percent of firms correctly.
+
+The importance of variable obtained from Linear Discriminant Analysis is also in accordance with business theories. The most importance predictors for an innovative firm are training, 
+
+Given the model is based on only nine predictors, the obtained accuracy is reasonable. The model can be further improved by adding more firm-specific variables, such as the experience of the manager, the level of education of employees, and the level of institutional development of the country.
+
+## Reference:
+Irzarry (2019) Introduction to Data Science: Data Analysis and Prediction Algorithms with R (available at: https://rafalab.github.io/dsbook/)
+
+*Note* The estimation is conducted using R3.6.0. 
+
+
+
